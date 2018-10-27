@@ -11,7 +11,7 @@ if (POLICY CMP0058)
   cmake_policy(SET CMP0058 NEW)
 endif()
 
-if (NOT IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/ext/glfw/src")
+if (NOT IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/ext/eigen/src")
   message(FATAL_ERROR "The NanoGUI dependency repositories (GLFW, etc.) are missing! "
     "You probably did not clone the project with --recursive. It is possible to recover "
     "by calling \"git submodule update --init --recursive\"")
@@ -105,6 +105,18 @@ else()
     message(FATAL_ERROR "Could not find file GLFW/glfw3.h in PATHS: ${NANOGUI_GLFW_INCLUDE_DIRS}")
   endif()
   get_target_property(NANOGUI_GLFW_COMPILE_DEFS ${NANOGUI_EXTERNAL_GLFW} INTERFACE_COMPILE_DEFINITIONS)
+endif()
+
+if (NANOGUI_EXTERNAL_NANOVG)
+  # Validate that NANOGUI_EXTERNAL_NANOVG is a valid import target, usage in a
+  # parent project would be something like
+  #
+  #     set(NANOGUI_EXTERNAL_NANOVG nanovg)
+  if (NOT TARGET ${NANOGUI_EXTERNAL_NANOVG})
+    message(FATAL_ERROR "NANOGUI_EXTERNAL_NANOVG: must be a (import) target.  See documentation.")
+  endif()
+  get_target_property(NANOGUI_NANOVG_INCLUDE_DIRS ${NANOGUI_EXTERNAL_NANOVG} INTERFACE_INCLUDE_DIRECTORIES)
+  get_target_property(NANOGUI_NANOVG_COMPILE_DEFS ${NANOGUI_EXTERNAL_NANOVG} INTERFACE_COMPILE_DEFINITIONS)
 endif()
 
 # Python support: add NANOGUI_PYTHON flag to all targets
@@ -238,7 +250,13 @@ if (NANOGUI_USE_GLAD)
   list(APPEND NANOGUI_EXTRA_INCS "${CMAKE_CURRENT_SOURCE_DIR}/ext/glad/include")
 endif()
 
-list(APPEND NANOGUI_EXTRA_INCS "${CMAKE_CURRENT_SOURCE_DIR}/ext/nanovg/src")
+if (NOT NANOGUI_EXTERNAL_NANOVG)
+  list(APPEND NANOGUI_EXTRA_INCS "${CMAKE_CURRENT_SOURCE_DIR}/ext/nanovg/src")
+else()
+  list(APPEND NANOGUI_EXTRA_INCS "${NANOGUI_NANOVG_INCLUDE_DIRS}")
+endif()
+
+
 if (NOT NANOGUI_EXTERNAL_GLFW)
   list(APPEND NANOGUI_EXTRA_INCS "${CMAKE_CURRENT_SOURCE_DIR}/ext/glfw/include")
 else()
@@ -279,11 +297,16 @@ elseif(CMAKE_SYSTEM MATCHES "Linux" OR CMAKE_SYSTEM_NAME MATCHES "BSD")
   endif()
 endif()
 
-include_directories(${NANOGUI_EIGEN_INCLUDE_DIR} ext/nanovg/src include ${CMAKE_CURRENT_BINARY_DIR})
+include_directories(${NANOGUI_EIGEN_INCLUDE_DIR} include ${CMAKE_CURRENT_BINARY_DIR})
 if (NOT NANOGUI_EXTERNAL_GLFW)
   include_directories(ext/glfw/include)
 else()
   include_directories(${NANOGUI_GLFW_INCLUDE_DIRS})
+endif()
+if (NOT NANOGUI_EXTERNAL_NANOVG)
+  include_directories(ext/nanovg/src)
+else()
+  include_directories(${NANOGUI_NANOVG_INCLUDE_DIRS})
 endif()
 
 # Run simple cmake converter to put font files into the data segment
@@ -334,10 +357,15 @@ endif()
 
 add_definitions(${NANOGUI_EXTRA_DEFS})
 
+if (NOT NANOGUI_EXTERNAL_NANOVG)
+  set(NANOGUI_NANOVG_SRC "")
+else()
+  set(NANOGUI_NANOVG_SRC "ext/nanovg/src/nanovg.c")
+endif()
+
 # Compile main NanoGUI library
 add_library(nanogui-obj OBJECT
-  # Merge NanoVG into the NanoGUI library
-  ext/nanovg/src/nanovg.c
+  ${NANOGUI_NANOVG_SRC}
   # Merge GLAD into the NanoGUI library (only if needed)
   ${LIBNANOGUI_EXTRA_SOURCE}
   # Fonts etc.
@@ -387,6 +415,7 @@ else()
   set(NANOGUI_GLFW_SRC "")
 endif()
 
+
 # XCode has a serious bug where the XCode project produces an invalid target
 # that will not get linked if it consists only of objects from object libraries,
 # it will not generate any products (executables, libraries). The only work
@@ -412,6 +441,13 @@ if (NANOGUI_EXTERNAL_GLFW)
     add_definitions(-D${def})
   endforeach()
   target_link_libraries(nanogui ${NANOGUI_EXTERNAL_GLFW})
+endif()
+
+if (NANOGUI_EXTERNAL_NANOVG)
+  foreach(def ${NANOGUI_NANOVG_COMPILE_DEFS})
+    add_definitions(-D${def})
+  endforeach()
+  target_link_libraries(nanogui ${NANOGUI_EXTERNAL_NANOVG})
 endif()
 
 if (NANOGUI_BUILD_SHARED)
@@ -458,11 +494,13 @@ if (NANOGUI_BUILD_SHARED AND NOT ${U_CMAKE_BUILD_TYPE} MATCHES DEB)
   endif()
 endif()
 
-# Quench warnings while compiling NanoVG
-if (CMAKE_COMPILER_IS_GNUCC)
-  set_source_files_properties(ext/nanovg/src/nanovg.c PROPERTIES COMPILE_FLAGS -Wno-unused-result)
-elseif(MSVC)
-  set_source_files_properties(ext/nanovg/src/nanovg.c PROPERTIES COMPILE_FLAGS "/wd4005 /wd4456 /wd4457")
+if(NOT NANOGUI_EXTERNAL_NANOVG)
+  # Quench warnings while compiling NanoVG
+  if (CMAKE_COMPILER_IS_GNUCC)
+    set_source_files_properties(ext/nanovg/src/nanovg.c PROPERTIES COMPILE_FLAGS -Wno-unused-result)
+  elseif(MSVC)
+    set_source_files_properties(ext/nanovg/src/nanovg.c PROPERTIES COMPILE_FLAGS "/wd4005 /wd4456 /wd4457")
+  endif()
 endif()
 
 # Build example application if desired
