@@ -11,7 +11,7 @@ if (POLICY CMP0058)
   cmake_policy(SET CMP0058 NEW)
 endif()
 
-if (NOT IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/ext/eigen/src")
+if (NOT IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/ext/eigen/Eigen")
   message(FATAL_ERROR "The NanoGUI dependency repositories (GLFW, etc.) are missing! "
     "You probably did not clone the project with --recursive. It is possible to recover "
     "by calling \"git submodule update --init --recursive\"")
@@ -297,6 +297,7 @@ elseif(CMAKE_SYSTEM MATCHES "Linux" OR CMAKE_SYSTEM_NAME MATCHES "BSD")
 endif()
 
 include_directories(include ${CMAKE_CURRENT_BINARY_DIR})
+list(APPEND NANOGUI_EXTRA_INCS include ${CMAKE_CURRENT_BINARY_DIR} ${NANOGUI_EIGEN_INCLUDE_DIR})
 include_directories(SYSTEM ${NANOGUI_EIGEN_INCLUDE_DIR})
 if (NOT NANOGUI_EXTERNAL_GLFW)
   include_directories(ext/glfw/include)
