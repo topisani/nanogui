@@ -65,26 +65,47 @@ macro(CHECK_CXX_COMPILER_AND_LINKER_FLAGS _RESULT _CXX_FLAGS _LINKER_FLAGS)
 endmacro()
 
 # Compile GLFW
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL " " FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL " " FORCE)
-set(GLFW_BUILD_DOCS OFF CACHE BOOL " " FORCE)
-set(GLFW_BUILD_INSTALL OFF CACHE BOOL " " FORCE)
-set(GLFW_INSTALL OFF CACHE BOOL " " FORCE)
-set(GLFW_USE_CHDIR OFF CACHE BOOL " " FORCE)
-set(BUILD_SHARED_LIBS ${NANOGUI_BUILD_SHARED} CACHE BOOL " " FORCE)
+if (NOT NANOGUI_EXTERNAL_GLFW)
+  set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL " " FORCE)
+  set(GLFW_BUILD_TESTS OFF CACHE BOOL " " FORCE)
+  set(GLFW_BUILD_DOCS OFF CACHE BOOL " " FORCE)
+  set(GLFW_BUILD_INSTALL OFF CACHE BOOL " " FORCE)
+  set(GLFW_INSTALL OFF CACHE BOOL " " FORCE)
+  set(GLFW_USE_CHDIR OFF CACHE BOOL " " FORCE)
+  set(BUILD_SHARED_LIBS ${NANOGUI_BUILD_SHARED} CACHE BOOL " " FORCE)
 
-if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  # Quench annoying deprecation warnings when compiling GLFW on OSX
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations")
+  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # Quench annoying deprecation warnings when compiling GLFW on OSX
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations")
+  endif()
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/ext/glfw" "ext_build/glfw")
+  # Two targets have now been defined: `glfw_objects`, which will be merged into
+  # NanoGUI at the end, and `glfw`.  The `glfw` target is the library itself
+  # (e.g., libglfw.so), but can be skipped as we do not need to link against it
+  # (because we merge `glfw_objects` into NanoGUI).  Skipping is required for
+  # XCode, but preferable for all build systems (reduces build artifacts).
+  set_target_properties(glfw PROPERTIES EXCLUDE_FROM_ALL 1 EXCLUDE_FROM_DEFAULT_BUILD 1)
+else()
+  # Validate that NANOGUI_EXTERNAL_GLFW is a valid import target, usage in a
+  # parent project would be something like
+  #
+  #     find_package(glfw3 REQUIRED)
+  #     set(NANOGUI_EXTERNAL_GLFW glfw)
+  if (NOT TARGET ${NANOGUI_EXTERNAL_GLFW})
+    message(FATAL_ERROR "NANOGUI_EXTERNAL_GLFW: must be a (import) target.  See documentation.")
+  endif()
+  get_target_property(NANOGUI_GLFW_INCLUDE_DIRS ${NANOGUI_EXTERNAL_GLFW} INTERFACE_INCLUDE_DIRECTORIES)
+  # Sanity check: make sure #include <GLFW/glfw3.h> is going to work.
+  find_file(
+    NANOGUI_EXTERNAL_GLFW3_HEADER_FOUND
+    GLFW/glfw3.h
+    PATHS ${NANOGUI_GLFW_INCLUDE_DIRS}
+  )
+  if (NOT NANOGUI_EXTERNAL_GLFW3_HEADER_FOUND)
+    message(FATAL_ERROR "Could not find file GLFW/glfw3.h in PATHS: ${NANOGUI_GLFW_INCLUDE_DIRS}")
+  endif()
+  get_target_property(NANOGUI_GLFW_COMPILE_DEFS ${NANOGUI_EXTERNAL_GLFW} INTERFACE_COMPILE_DEFINITIONS)
 endif()
-
-add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/ext/glfw" "ext_build/glfw")
-# Two targets have now been defined: `glfw_objects`, which will be merged into
-# NanoGUI at the end, and `glfw`.  The `glfw` target is the library itself
-# (e.g., libglfw.so), but can be skipped as we do not need to link against it
-# (because we merge `glfw_objects` into NanoGUI).  Skipping is required for
-# XCode, but preferable for all build systems (reduces build artifacts).
-set_target_properties(glfw PROPERTIES EXCLUDE_FROM_ALL 1 EXCLUDE_FROM_DEFAULT_BUILD 1)
 
 # Python support: add NANOGUI_PYTHON flag to all targets
 if (NANOGUI_BUILD_PYTHON)
@@ -217,10 +238,12 @@ if (NANOGUI_USE_GLAD)
   list(APPEND NANOGUI_EXTRA_INCS "${CMAKE_CURRENT_SOURCE_DIR}/ext/glad/include")
 endif()
 
-list(APPEND NANOGUI_EXTRA_INCS
-  "${CMAKE_CURRENT_SOURCE_DIR}/ext/glfw/include"
-  "${CMAKE_CURRENT_SOURCE_DIR}/ext/nanovg/src"
-)
+list(APPEND NANOGUI_EXTRA_INCS "${CMAKE_CURRENT_SOURCE_DIR}/ext/nanovg/src")
+if (NOT NANOGUI_EXTERNAL_GLFW)
+  list(APPEND NANOGUI_EXTRA_INCS "${CMAKE_CURRENT_SOURCE_DIR}/ext/glfw/include")
+else()
+  list(APPEND NANOGUI_EXTRA_INCS "${NANOGUI_GLFW_INCLUDE_DIRS}")
+endif()
 
 if (NOT NANOGUI_EIGEN_INCLUDE_DIR)
   set(NANOGUI_EIGEN_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ext/eigen")
@@ -256,8 +279,12 @@ elseif(CMAKE_SYSTEM MATCHES "Linux" OR CMAKE_SYSTEM_NAME MATCHES "BSD")
   endif()
 endif()
 
-include_directories(${NANOGUI_EIGEN_INCLUDE_DIR} ext/glfw/include ext/nanovg/src include ${CMAKE_CURRENT_BINARY_DIR})
-
+include_directories(${NANOGUI_EIGEN_INCLUDE_DIR} ext/nanovg/src include ${CMAKE_CURRENT_BINARY_DIR})
+if (NOT NANOGUI_EXTERNAL_GLFW)
+  include_directories(ext/glfw/include)
+else()
+  include_directories(${NANOGUI_GLFW_INCLUDE_DIRS})
+endif()
 
 # Run simple cmake converter to put font files into the data segment
 
@@ -352,6 +379,14 @@ add_library(nanogui-obj OBJECT
   src/serializer.cpp
 )
 
+# When an external version of GLFW is supplied, NanoGUI will link against it.
+# Otherwise, NanoGUI will merge the GLFW objects into the final nanogui library.
+if (NOT NANOGUI_EXTERNAL_GLFW)
+  set(NANOGUI_GLFW_SRC "$<TARGET_OBJECTS:glfw_objects>")
+else()
+  set(NANOGUI_GLFW_SRC "")
+endif()
+
 # XCode has a serious bug where the XCode project produces an invalid target
 # that will not get linked if it consists only of objects from object libraries,
 # it will not generate any products (executables, libraries). The only work
@@ -363,13 +398,20 @@ if (CMAKE_GENERATOR STREQUAL Xcode)
   add_library(nanogui ${NANOGUI_LIBRARY_TYPE}
     ${XCODE_DUMMY}
     $<TARGET_OBJECTS:nanogui-obj>
-    $<TARGET_OBJECTS:glfw_objects>
+    ${NANOVG_GLFW_SRC}
   )
 else()
   add_library(nanogui ${NANOGUI_LIBRARY_TYPE}
     $<TARGET_OBJECTS:nanogui-obj>
-    $<TARGET_OBJECTS:glfw_objects>
+    ${NANOVG_GLFW_SRC}
   )
+endif()
+
+if (NANOGUI_EXTERNAL_GLFW)
+  foreach(def ${NANOGUI_GLFW_COMPILE_DEFS})
+    add_definitions(-D${def})
+  endforeach()
+  target_link_libraries(nanogui ${NANOGUI_EXTERNAL_GLFW})
 endif()
 
 if (NANOGUI_BUILD_SHARED)
@@ -399,7 +441,10 @@ endif()
 
 if (NANOGUI_BUILD_SHARED)
   # When GLFW is merged into the NanoGUI library, this flag must be specified
-  set_property(TARGET nanogui-obj APPEND PROPERTY COMPILE_DEFINITIONS "_GLFW_BUILD_DLL;NVG_SHARED")
+  set_property(TARGET nanogui-obj APPEND PROPERTY COMPILE_DEFINITIONS "NVG_SHARED")
+  if (NOT NANOGUI_EXTERNAL_GLFW)
+    set_property(TARGET nanogui-obj APPEND PROPERTY COMPILE_DEFINITIONS "_GLFW_BUILD_DLL")
+  endif()
 endif()
 
 if (NANOGUI_BUILD_SHARED AND NOT ${U_CMAKE_BUILD_TYPE} MATCHES DEB)
@@ -456,7 +501,9 @@ endif()
 if (NANOGUI_BUILD_PYTHON)
   # Need PIC code in libnanogui even when compiled as a static library
   set_target_properties(nanogui-obj PROPERTIES POSITION_INDEPENDENT_CODE ON)
-  set_target_properties(glfw_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  if (NOT NANOGUI_EXTERNAL_GLFW)
+    set_target_properties(glfw_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  endif()
 
   include_directories("ext/pybind11/include" ${PYTHON_INCLUDE_DIR})
   add_library(nanogui-python-obj OBJECT
