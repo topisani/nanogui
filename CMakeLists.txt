@@ -265,7 +265,6 @@ endif()
 
 if (NOT NANOGUI_EIGEN_INCLUDE_DIR)
   set(NANOGUI_EIGEN_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ext/eigen")
-  list(APPEND NANOGUI_EXTRA_INCS "${NANOGUI_EIGEN_INCLUDE_DIR}")
 endif()
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "BSD")
@@ -297,7 +296,8 @@ elseif(CMAKE_SYSTEM MATCHES "Linux" OR CMAKE_SYSTEM_NAME MATCHES "BSD")
   endif()
 endif()
 
-include_directories(${NANOGUI_EIGEN_INCLUDE_DIR} include ${CMAKE_CURRENT_BINARY_DIR})
+include_directories(include ${CMAKE_CURRENT_BINARY_DIR})
+include_directories(SYSTEM ${NANOGUI_EIGEN_INCLUDE_DIR})
 if (NOT NANOGUI_EXTERNAL_GLFW)
   include_directories(ext/glfw/include)
 else()

@@ -216,6 +216,7 @@ Screen::Screen(const Vector2i &size, const std::string &caption, bool resizable,
         }
     );
 
+#if GLFW_VERSION_MINOR < 3
     glfwSetKeyCallback(mGLFWWindow,
         [](GLFWwindow *w, int key, int scancode, int action, int mods) {
             auto it = __nanogui_screens.find(w);
@@ -239,6 +240,23 @@ Screen::Screen(const Vector2i &size, const std::string &caption, bool resizable,
             s->charCallbackEvent(codepoint);
         }
     );
+#else
+    glfwSetKeyboardCallback(mGLFWWindow,
+        [](GLFWwindow *w, int key, int scancode, int action, int mods, const char* str, int) {
+            auto it = __nanogui_screens.find(w);
+            if (it == __nanogui_screens.end())
+                return;
+            Screen *s = it->second;
+            if (!s->mProcessEvents)
+                return;
+            if (strlen(str) == 1) {
+              s->charCallbackEvent(str[0]);
+            } else {
+              s->keyCallbackEvent(key, scancode, action, mods);
+            }
+        }
+    );
+#endif
 
     glfwSetDropCallback(mGLFWWindow,
         [](GLFWwindow *w, int count, const char **filenames) {
@@ -253,7 +271,11 @@ Screen::Screen(const Vector2i &size, const std::string &caption, bool resizable,
     );
 
     glfwSetScrollCallback(mGLFWWindow,
+#if GLFW_VERSION_MINOR > 2
+        [](GLFWwindow *w, double x, double y, int) {
+#else
         [](GLFWwindow *w, double x, double y) {
+#endif
             auto it = __nanogui_screens.find(w);
             if (it == __nanogui_screens.end())
                 return;
